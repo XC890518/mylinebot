@@ -42,7 +42,7 @@ scheduler.add_job(send_weekly_shift_notification, 'interval', minutes=1)
 scheduler.start()
 
 # Flask 根路由測試
-@app.route("/", methods=['GET'])
+@app.route("/")
 def home():
     return "Flask server is running!"
 
