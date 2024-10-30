@@ -1,50 +1,49 @@
-from flask import Flask
-from apscheduler.schedulers.background import BackgroundScheduler
-from linebot import LineBotApi
-from linebot.models import TextSendMessage
-import json
-from datetime import datetime
+from flask import Flask, request, abort
+from linebot import LineBotApi, WebhookHandler
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.exceptions import InvalidSignatureError
 
-# 初始化 Flask 應用
 app = Flask(__name__)
 
-# LINE Bot 配置
-CHANNEL_ACCESS_TOKEN = 'Z3uo8wLFrXiB5LM8y7j7ENX0l5NkYNIOZ3dMAR248Uv03GBAM99XPtlutW8I5Vgy3e5JR0IOngB0GRHZ/roqA2r4y3e5xKcoQMLKT9hn2On/BQv0R6iEhj1rfsysaMeQ6IVZ1fIsCwZCsqFVjoReqgdB04t89/1O/w1cDnyilFU='
+# 設定你的 Channel Access Token 和 Secret
+CHANNEL_ACCESS_TOKEN = '你的_channel_access_token'
+CHANNEL_SECRET = '你的_channel_secret'
+
 line_bot_api = LineBotApi(CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(CHANNEL_SECRET)
 
-# 讀取排班表的函數
-def get_this_week_shift():
-    today = datetime.now().strftime('%Y-%m-%d')
-    with open('schedule.json', 'r') as f:
-        schedule = json.load(f)
-    for record in schedule:
-        if record['date'] == today:
-            return f"本週的值班人是：{record['duty']}"
-    return "本週沒有排班紀錄。"
+@app.route("/callback", methods=['POST'])
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
 
-# 傳送本週值班通知的函數
-def send_weekly_shift_notification():
     try:
-        shift_info = get_this_week_shift()
-        # 傳送訊息到某個聊天室 (群組或使用者 ID)
-        line_bot_api.push_message(
-            'U14ecf9c86126bb5ddfd66abfae0c3c4c',  # 更改為目標使用者或群組的 ID
-            TextSendMessage(text=shift_info)
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+
+    return 'OK'
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    # 確認事件來自群組
+    if event.source.type == 'group':
+        group_id = event.source.group_id  # 獲取群組 ID
+        user_message = event.message.text
+
+        # 如果使用者傳送了 "今日值班"，回應群組訊息
+        if user_message == '今日值班':
+            reply_text = "今天的值班人是：Alice"
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=reply_text)
+            )
+    else:
+        # 回應私人訊息
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text="請在群組中使用此指令。")
         )
-        print("本週值班通知已發送。")
-    except Exception as e:
-        print(f"Error sending message: {e}")
-
-# APScheduler 設定
-scheduler = BackgroundScheduler()
-# 設定每週一上午10點執行
-scheduler.add_job(send_weekly_shift_notification, 'interval', minutes=1)
-scheduler.start()
-
-# Flask 根路由測試
-@app.route("/")
-def home():
-    return "Flask server is running!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
